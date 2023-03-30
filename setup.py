@@ -15,7 +15,7 @@ setup(
     version=__version__,#'0.1',
     install_requires=[
         'cloudpickle==1.2.1',
-        'gymnasium[atari,box2d,classic_control]~=0.26.0',
+        'gym[atari,box2d,classic_control]==0.25.2',
         'ipython',
         'joblib',
         'matplotlib==3.1.1',
