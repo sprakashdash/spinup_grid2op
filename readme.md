@@ -1,8 +1,9 @@
 **Status:** Maintenance (expect bug fixes and minor updates)
 
-Welcome to Spinning Up in Deep RL! 
+Welcome to Spinning Up in Deep RL with Grid2op! 
 ==================================
 
+[Here](https://colab.research.google.com/drive/1G9OPjq8ebjYpXBrjTskHuJAFhmT0EuyW?usp=sharing) is a colab implementation
 This is an educational resource produced by OpenAI that makes it easier to learn about deep reinforcement learning (deep RL).
 
 For the unfamiliar: [reinforcement learning](https://en.wikipedia.org/wiki/Reinforcement_learning) (RL) is a machine learning approach for teaching agents how to solve tasks by trial and error. Deep RL refers to the combination of RL with [deep learning](http://ufldl.stanford.edu/tutorial/).
