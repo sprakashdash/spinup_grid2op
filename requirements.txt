@@ -1,4 +1,3 @@
 grid2op[optional]
 swig
 torch==1.13
-tensorflow==2.11
