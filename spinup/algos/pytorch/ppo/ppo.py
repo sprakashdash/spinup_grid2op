@@ -300,11 +300,20 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
+
+            num_bins = 10
+            rho_counters = torch.tensor([0 for _ in range(num_bins)])
+
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
             next_o, r, d, _ = env.step(a)
             ep_ret += r
             ep_len += 1
+
+            rho_vals = deepcopy(torch.tensor(next_o_g2p.rho))
+            rho_vals[rho_vals>1] = 1 - 1e-6
+
+            rho_counters += torch.histogram(rho_vals, num_bins, range=[0.,1.]).hist.int()
 
             # save and log
             buf.store(o, a, r, v, logp)
@@ -340,6 +349,10 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         update()
 
         # Log info about epoch
+        # log rho
+        for bin in range(num_bins):
+            logger.log_tabular(f"rho_bin_{bin}_count", rho_counters[bin])
+
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('EpRet', with_min_and_max=True)
         logger.log_tabular('EpLen', average_only=True)
