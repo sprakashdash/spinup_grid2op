@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.optim import Adam
+from copy import deepcopy
 import gym
 import time
 import spinup.algos.pytorch.ppo.core as core
