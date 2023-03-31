@@ -1,0 +1,1 @@
+50 epochs, t=0.1, with rho logged
