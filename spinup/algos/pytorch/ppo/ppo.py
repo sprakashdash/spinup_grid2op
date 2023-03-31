@@ -9,6 +9,17 @@ from spinup.utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg
 from spinup.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 import grid2op
 
+from grid2op.gym_compat import GymEnv
+
+class ModifiedGymEnv(GymEnv):
+    def __init__(self, *args, **kwargs):
+        super().__init__(self, *args, **kwargs)
+    def _aux_step(self, gym_action):
+        # used for gym < 0.26
+        g2op_act = self.action_space.from_gym(gym_action)
+        g2op_obs, reward, done, info = self.init_env.step(g2op_act)
+        gym_obs = self.observation_space.to_gym(g2op_obs)
+        return gym_obs, float(reward), done, g2op_obs
 
 
 class PPOBuffer:
@@ -18,7 +29,7 @@ class PPOBuffer:
     for calculating the advantages of state-action pairs.
     """
 
-    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95):
+    def __init__(self, obs_dim, act_dim, n_line, size, gamma=0.99, lam=0.95):
         self.obs_buf = np.zeros(core.combined_shape(size, obs_dim), dtype=np.float32)
         self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
         self.adv_buf = np.zeros(size, dtype=np.float32)
@@ -26,10 +37,11 @@ class PPOBuffer:
         self.ret_buf = np.zeros(size, dtype=np.float32)
         self.val_buf = np.zeros(size, dtype=np.float32)
         self.logp_buf = np.zeros(size, dtype=np.float32)
+        self.rho_buf = np.zeros(core.combined_shape(size, n_line), dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-    def store(self, obs, act, rew, val, logp):
+    def store(self, obs, act, rew, val, logp, rho):
         """
         Append one timestep of agent-environment interaction to the buffer.
         """
@@ -39,6 +51,7 @@ class PPOBuffer:
         self.rew_buf[self.ptr] = rew
         self.val_buf[self.ptr] = val
         self.logp_buf[self.ptr] = logp
+        self.rho_buf[self.ptr] = rho
         self.ptr += 1
 
     def finish_path(self, last_val=0):
@@ -82,7 +95,7 @@ class PPOBuffer:
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
         data = dict(obs=self.obs_buf, act=self.act_buf, ret=self.ret_buf,
-                    adv=self.adv_buf, logp=self.logp_buf)
+                    adv=self.adv_buf, logp=self.logp_buf, rho=self.rho_buf)
         return {k: torch.as_tensor(v, dtype=torch.float32) for k,v in data.items()}
 
 
@@ -90,7 +103,7 @@ class PPOBuffer:
 def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, t=0.1):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -222,18 +235,22 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.v])
     logger.log('\nNumber of parameters: \t pi: %d, \t v: %d\n'%var_counts)
 
+    # get observation for grid2op
+    env.reset()
+    _, _, _, o_g2p = env.step(env.action_space.sample())
+    
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
-    buf = PPOBuffer(obs_dim, act_dim, local_steps_per_epoch, gamma, lam)
+    buf = PPOBuffer(obs_dim, act_dim, o_g2p.n_line, local_steps_per_epoch, gamma, lam)
 
     # Set up function for computing PPO policy loss
     def compute_loss_pi(data):
-        obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
-
+        obs, act, adv, logp_old, rho = data['obs'], data['act'], data['adv'], data['logp'], data['rho']
+        rho[rho >= 1.0] = 1.0 - 1e-6 # make sure rho less than 1.0
         # Policy loss
         pi, logp = ac.pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * adv
+        clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * adv - 1/t * torch.sum(torch.log(1.0-rho), axis=1)
         loss_pi = -(torch.min(ratio * adv, clip_adv)).mean()
 
         # Useful extra info
@@ -296,22 +313,45 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Prepare for interaction with environment
     start_time = time.time()
     o, ep_ret, ep_len = env.reset(), 0, 0
+    o_g2p = None
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
+            
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
-            next_o, r, d, _ = env.step(a)
+            ####################################################################
+            # Test action with simulation()
+            num_test =0  #5
+            test_cnt = 0
+            while test_cnt < num_test:
+                a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                if o_g2p is None:
+                    break
+                else:
+                    a_g2o = env.action_space.from_gym(a)
+                    o_sim, rew_sim, done_sim, o_g2p_sim = o_g2p.simulate(a_g2o)
+                    if not done_sim:
+                        break
+                test_cnt = test_cnt + 1
+            #####################################################################
+
+            next_o, r, d, next_o_g2p = env.step(a)
             ep_ret += r
             ep_len += 1
 
             # save and log
-            buf.store(o, a, r, v, logp)
+            if o_g2p is None:
+                rho = next_o_g2p.rho
+            else:
+                rho = o_g2p.rho
+            buf.store(o, a, r, v, logp, rho)
             logger.store(VVals=v)
             
             # Update obs (critical!)
             o = next_o
+            o_g2p = next_o_g2p
 
             timeout = ep_len == max_ep_len
             terminal = d or timeout
@@ -376,8 +416,7 @@ if __name__ == '__main__':
     mpi_fork(args.cpu)  # run parallel code with mpi
 
     env_glop = grid2op.make(args.env, test=True, backend=bk_cls())
-    from grid2op.gym_compat import GymEnv
-    grid2op_gym = GymEnv(env_glop)
+    grid2op_gym = ModifiedGymEnv(env_glop)
     from grid2op.gym_compat import BoxGymActSpace, BoxGymObsSpace
     grid2op_gym.action_space = BoxGymActSpace(grid2op_gym.init_env.action_space,
                                      attr_to_keep=['curtail', 'redispatch'])
