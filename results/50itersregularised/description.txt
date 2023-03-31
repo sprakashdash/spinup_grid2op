@@ -1,1 +1,1 @@
-50 iters, regularised, rho logged
+50 epochs, t=0.1, with rho logged
