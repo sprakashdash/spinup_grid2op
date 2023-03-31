@@ -307,7 +307,7 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
-        num_bins = 10
+        num_bins = 11
         rho_counters = torch.tensor([0 for _ in range(num_bins)])
 
         for t in range(local_steps_per_epoch):
@@ -336,9 +336,9 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             ep_len += 1
             
             rho_vals = deepcopy(torch.tensor(next_o_g2p.rho))
-            rho_vals[rho_vals>1] = 1 - 1e-6
+            rho_vals[rho_vals>1] = 1.05
             
-            rho_counters += torch.histogram(rho_vals, num_bins, range=[0.,1.]).hist.int()
+            rho_counters += torch.histogram(rho_vals, num_bins, range=[0.,1.1]).hist.int()
 
             # save and log
             if o_g2p is None:
