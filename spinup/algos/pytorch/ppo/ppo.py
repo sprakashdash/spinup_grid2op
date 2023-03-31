@@ -8,19 +8,7 @@ from spinup.utils.logx import EpochLogger
 from spinup.utils.mpi_pytorch import setup_pytorch_for_mpi, sync_params, mpi_avg_grads
 from spinup.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 import grid2op
-
-from grid2op.gym_compat import GymEnv
-
-class ModifiedGymEnv(GymEnv):
-    def __init__(self, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
-    def _aux_step(self, gym_action):
-        # used for gym < 0.26
-        g2op_act = self.action_space.from_gym(gym_action)
-        g2op_obs, reward, done, info = self.init_env.step(g2op_act)
-        gym_obs = self.observation_space.to_gym(g2op_obs)
-        return gym_obs, float(reward), done, g2op_obs
-
+from spinup.utils.run_utils import ModifiedGymEnv
 
 class PPOBuffer:
     """
@@ -237,8 +225,9 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # get observation for grid2op
     env.reset()
+
     _, _, _, o_g2p = env.step(env.action_space.sample())
-    
+
     # Set up experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
     buf = PPOBuffer(obs_dim, act_dim, o_g2p.n_line, local_steps_per_epoch, gamma, lam)
@@ -416,8 +405,8 @@ if __name__ == '__main__':
     mpi_fork(args.cpu)  # run parallel code with mpi
 
     env_glop = grid2op.make(args.env, test=True, backend=bk_cls())
-    from grid2op.gym_compat import GymEnv
-    grid2op_gym = GymEnv(env_glop)
+    #from grid2op.gym_compat import GymEnv
+    grid2op_gym = ModifiedGymEnv(env_glop)
     from grid2op.gym_compat import BoxGymActSpace, BoxGymObsSpace
     grid2op_gym.action_space = BoxGymActSpace(grid2op_gym.init_env.action_space,
                                      attr_to_keep=['change_bus', 'change_line_status', 'set_bus', 'set_line_status', 'set_storage'])
