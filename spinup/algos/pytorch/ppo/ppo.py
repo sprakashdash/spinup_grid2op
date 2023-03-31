@@ -239,7 +239,7 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # Policy loss
         pi, logp = ac.pi(obs, act)
         ratio = torch.exp(logp - logp_old)
-        clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * adv - 1/t * torch.sum(torch.log(1.0-rho), axis=1)
+        clip_adv = torch.clamp(ratio, 1-clip_ratio, 1+clip_ratio) * (adv + 1/t * torch.sum(torch.log(1.0-rho), axis=1))
         loss_pi = -(torch.min(ratio * adv, clip_adv)).mean()
 
         # Useful extra info
