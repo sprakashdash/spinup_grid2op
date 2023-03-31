@@ -23,7 +23,7 @@ import traceback
 import grid2op
 from lightsim2grid import LightSimBackend
 from grid2op.gym_compat import GymEnv
-from grid2op.gym_compat import BoxGymActSpace, BoxGymObsSpace
+from grid2op.gym_compat import BoxGymActSpace, BoxGymObsSpace, DiscreteActSpace
 
 DIV_LINE_WIDTH = 80
 
@@ -33,8 +33,8 @@ def create_grid2op_env(env_name):
     
     grid2op_gym = GymEnv(env_glop)
     
-    grid2op_gym.action_space = BoxGymActSpace(grid2op_gym.init_env.action_space,
-                                     attr_to_keep=['curtail', 'redispatch'])
+    grid2op_gym.action_space = DiscreteActSpace(grid2op_gym.init_env.action_space,
+                                     attr_to_keep=['change_bus', 'change_line_status', 'set_bus', 'set_line_status', 'set_storage'])
 
     grid2op_gym.observation_space = BoxGymObsSpace(grid2op_gym.init_env.observation_space,
                                             attr_to_keep=['a_ex', 'a_or', 
