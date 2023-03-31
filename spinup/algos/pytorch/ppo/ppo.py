@@ -307,10 +307,11 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
+        num_bins = 10
+        rho_counters = torch.tensor([0 for _ in range(num_bins)])
+
         for t in range(local_steps_per_epoch):
             
-            num_bins = 10
-            rho_counters = torch.tensor([0 for _ in range(num_bins)])
             
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
 
