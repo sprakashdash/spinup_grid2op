@@ -22,8 +22,20 @@ import zlib
 import traceback
 import grid2op
 from lightsim2grid import LightSimBackend
-from grid2op.gym_compat import GymEnv
+
 from grid2op.gym_compat import BoxGymActSpace, BoxGymObsSpace, DiscreteActSpace
+from grid2op.gym_compat import GymEnv
+
+class ModifiedGymEnv(GymEnv):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    def _aux_step(self, gym_action):
+        # used for gym < 0.26
+        g2op_act = self.action_space.from_gym(gym_action)
+        g2op_obs, reward, done, info = self.init_env.step(g2op_act)
+        gym_obs = self.observation_space.to_gym(g2op_obs)
+        return gym_obs, float(reward), done, g2op_obs
+
 
 DIV_LINE_WIDTH = 80
 
@@ -31,7 +43,7 @@ def create_grid2op_env(env_name):
     bk_cls = LightSimBackend
     env_glop = grid2op.make(env_name, test=True, backend=bk_cls())
     
-    grid2op_gym = GymEnv(env_glop)
+    grid2op_gym = ModifiedGymEnv(env_glop)
     
     grid2op_gym.action_space = DiscreteActSpace(grid2op_gym.init_env.action_space,
                                      attr_to_keep=['change_bus', 'change_line_status', 'set_bus', 'set_line_status', 'set_storage'])
